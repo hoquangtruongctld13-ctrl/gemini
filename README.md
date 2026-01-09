@@ -407,6 +407,16 @@ The project is built on a modular architecture designed for scalability and ease
 
 ---
 
+## 🔧 Troubleshooting
+
+Having issues with cookies, server startup, or authentication? Check out the [TROUBLESHOOTING.md](TROUBLESHOOTING.md) guide for solutions to common problems like:
+
+- "Gemini cookies not found or incomplete"
+- "Found __Secure-1PSID (empty value)"
+- "Failed to start server. Check if cookies are configured"
+
+---
+
 ## 🐳 Docker Deployment Guide
 
 For Docker setup and deployment instructions, please refer to the [Docker.md](Docker.md) documentation.
