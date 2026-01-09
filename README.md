@@ -16,15 +16,21 @@
 
 ---
 
-This project supports **two operational modes**:
+This project supports **three operational modes**:
 
-1. **Primary Web Server**
+1. **Desktop GUI Application** (New!)
+
+   > Gemini Chat GUI
+
+   A desktop chat application with a graphical user interface. Features auto-start server, model selection, and real-time chat with Gemini models. Perfect for users who prefer a visual interface.
+
+2. **Primary Web Server**
 
    > WebAI-to-API
 
    Connects to the Gemini web interface using your browser cookies and exposes it as an API endpoint. This method is lightweight, fast, and efficient for personal use.
 
-2. **Fallback Web Server (gpt4free)**
+3. **Fallback Web Server (gpt4free)**
 
    > [gpt4free](https://github.com/xtekky/gpt4free)
 
@@ -43,6 +49,12 @@ This design provides both **speed and redundancy**, ensuring flexibility dependi
 ---
 
 ## Features
+
+- 🖥️ **Desktop GUI Application**: 
+  - One-click server start/stop
+  - Real-time chat interface with message history
+  - Model selection dropdown (Gemini 3.0 Pro, 2.5 Pro, 2.5 Flash)
+  - Clean, modern dark theme interface
 
 - 🌐 **Available Endpoints**:
 
@@ -96,6 +108,22 @@ This design provides both **speed and redundancy**, ensuring flexibility dependi
    ```bash
    poetry run python src/run.py
    ```
+
+5. **Run the GUI application (alternative):**
+
+   ```bash
+   poetry run python run_gui.py
+   ```
+
+   Or directly:
+
+   ```bash
+   poetry run python src/gui_app.py
+   ```
+
+   > **Note:** The GUI application requires `tkinter`, which comes pre-installed with Python on Windows and macOS. On Linux, you may need to install it:
+   > - Ubuntu/Debian: `sudo apt-get install python3-tk`
+   > - Fedora: `sudo dnf install python3-tkinter`
 
 ---
 
@@ -332,12 +360,18 @@ src/
 │   └── utils/                 # Helper functions.
 │       ├── __init__.py
 │       └── browser.py         # Browser-based cookie retrieval.
+├── gui/                       # GUI application package.
+│   ├── __init__.py
+│   └── chat_app.py            # Desktop chat application with tkinter.
 ├── models/                    # Models and wrappers (e.g., MyGeminiClient).
 │   └── gemini.py
 ├── schemas/                   # Pydantic schemas for request/response validation.
 │   └── request.py
-├── config.conf                # Application configuration file.
-└── run.py                     # Entry point to run the server.
+├── gui_app.py                 # GUI application entry point.
+└── run.py                     # Server entry point.
+
+run_gui.py                     # Project root GUI launcher script.
+config.conf                    # Application configuration file.
 ```
 
 ---
