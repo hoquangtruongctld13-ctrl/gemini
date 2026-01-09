@@ -1,6 +1,6 @@
 # src/app/services/gemini_client.py
 from models.gemini import MyGeminiClient
-from app.config import CONFIG
+from app.config import CONFIG, load_config
 from app.logger import logger
 from app.utils.browser import get_cookie_from_browser
 
@@ -17,13 +17,23 @@ class GeminiClientNotInitializedError(Exception):
 _gemini_client = None
 _initialization_error = None
 
-async def init_gemini_client() -> bool:
+async def init_gemini_client(force_reload_config: bool = False) -> bool:
     """
     Initialize and set up the Gemini client based on the configuration.
     Returns True on success, False on failure.
+    
+    Parameters:
+        force_reload_config: If True, reload config file to pick up new cookies
     """
-    global _gemini_client, _initialization_error
+    global _gemini_client, _initialization_error, CONFIG
     _initialization_error = None
+
+    # Reload config if requested (useful when cookies have been updated)
+    if force_reload_config:
+        from app import config as config_module
+        config_module.CONFIG = load_config()
+        CONFIG = config_module.CONFIG
+        logger.info("Configuration reloaded")
 
     if CONFIG.getboolean("EnabledAI", "gemini", fallback=True):
         try:
@@ -40,6 +50,13 @@ async def init_gemini_client() -> bool:
                 gemini_proxy = None
 
             if gemini_cookie_1PSID and gemini_cookie_1PSIDTS:
+                # Close existing client if any
+                if _gemini_client is not None:
+                    try:
+                        await _gemini_client.close()
+                    except Exception:
+                        pass  # Ignore errors when closing old client
+                
                 _gemini_client = MyGeminiClient(secure_1psid=gemini_cookie_1PSID, secure_1psidts=gemini_cookie_1PSIDTS, proxy=gemini_proxy)
                 await _gemini_client.init()
                 logger.info("Gemini client initialized successfully.")
@@ -76,6 +93,15 @@ async def init_gemini_client() -> bool:
         logger.info(error_msg)
         _initialization_error = error_msg
         return False
+
+
+async def reinit_gemini_client() -> bool:
+    """
+    Reinitialize the Gemini client, reloading configuration.
+    Useful when cookies have been updated or when recovering from errors.
+    """
+    logger.info("Reinitializing Gemini client...")
+    return await init_gemini_client(force_reload_config=True)
 
 
 def get_gemini_client():
