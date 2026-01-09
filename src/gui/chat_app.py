@@ -18,14 +18,19 @@ import sys
 import os
 import time
 import queue
-from typing import Optional
+import signal
+from typing import Optional, TYPE_CHECKING
 import httpx
+import uvicorn
+
+if TYPE_CHECKING:
+    from multiprocessing.synchronize import Event as MultiprocessingEvent
 
 # Add src to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-def _run_server_process(host: str, port: int, stop_event):
+def _run_server_process(host: str, port: int, stop_event: "MultiprocessingEvent"):
     """
     Server process function.
     
@@ -33,10 +38,6 @@ def _run_server_process(host: str, port: int, stop_event):
     On Windows, multiprocessing uses 'spawn' which requires all target functions 
     to be importable from the module namespace (not local/nested functions).
     """
-    import signal
-    import uvicorn
-    import threading
-    
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
