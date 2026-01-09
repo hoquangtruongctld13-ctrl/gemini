@@ -25,6 +25,40 @@ import httpx
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+def _run_server_process(host: str, port: int, stop_event):
+    """
+    Server process function.
+    
+    This function is defined at module level to be picklable for Windows multiprocessing.
+    On Windows, multiprocessing uses 'spawn' which requires all target functions 
+    to be importable from the module namespace (not local/nested functions).
+    """
+    import signal
+    import uvicorn
+    import threading
+    
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
+    # Import app here to avoid circular imports and ensure fresh import in subprocess
+    from app.main import app as webai_app
+    
+    config = uvicorn.Config(
+        webai_app, host=host, port=port, log_config=None
+    )
+    server = uvicorn.Server(config)
+    
+    def shutdown_monitor():
+        stop_event.wait()
+        server.should_exit = True
+    
+    monitor_thread = threading.Thread(target=shutdown_monitor, daemon=True)
+    monitor_thread.start()
+    
+    server.run()
+
+
 class ServerManager:
     """Manages the FastAPI server process."""
     
@@ -42,11 +76,7 @@ class ServerManager:
             
         try:
             import multiprocessing
-            from app.config import load_config
-            from app.main import app as webai_app
             from app.services.gemini_client import init_gemini_client
-            import uvicorn
-            import signal
             
             # Initialize the client in a separate thread to avoid blocking
             # This runs the async initialization in a new event loop
@@ -76,28 +106,10 @@ class ServerManager:
             
             self._stop_event = multiprocessing.Event()
             
-            def run_server(host, port, stop_event):
-                """Server process function."""
-                signal.signal(signal.SIGINT, signal.SIG_IGN)
-                if sys.platform == "win32":
-                    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-                
-                config = uvicorn.Config(
-                    webai_app, host=host, port=port, log_config=None
-                )
-                server = uvicorn.Server(config)
-                
-                def shutdown_monitor():
-                    stop_event.wait()
-                    server.should_exit = True
-                
-                monitor_thread = threading.Thread(target=shutdown_monitor, daemon=True)
-                monitor_thread.start()
-                
-                server.run()
-            
+            # Use module-level function for Windows multiprocessing compatibility
+            # Local functions cannot be pickled when using 'spawn' start method
             self.process = multiprocessing.Process(
-                target=run_server,
+                target=_run_server_process,
                 args=(self.host, self.port, self._stop_event)
             )
             self.process.start()
