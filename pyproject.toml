@@ -12,7 +12,12 @@ packages = [
     { include = "app", from = "src" },
     { include = "models", from = "src" },
     { include = "schemas", from = "src" },
+    { include = "gui_chat", from = "src" },
 ]
+
+[tool.poetry.scripts]
+webai-server = "run:main"
+webai-gui = "run_gui:main"
 
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0"

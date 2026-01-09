@@ -97,6 +97,42 @@ This design provides both **speed and redundancy**, ensuring flexibility dependi
    poetry run python src/run.py
    ```
 
+5. **Run the GUI Chat Application (Optional):**
+
+   ```bash
+   poetry run python src/run_gui.py
+   ```
+
+---
+
+## GUI Chat Application
+
+The project includes a modern GUI chat application that provides:
+
+- 🖥️ **One-Click Server Control**: Start/stop the server directly from the UI
+- 💬 **Real-time Chat**: Chat with Gemini models through a clean interface
+- 🔑 **API Key Rotation**: Load multiple API keys for automatic rotation
+- 🌓 **Dark/Light Themes**: Toggle between dark and light modes
+- ⚙️ **Settings Management**: Configure host, port, and auto-start options
+
+### Running the GUI
+
+```bash
+# Using Poetry
+poetry run python src/run_gui.py
+
+# Or directly with Python (after poetry install)
+python src/run_gui.py
+```
+
+### API Key Rotation
+
+For high-volume usage, you can configure multiple API keys for automatic rotation:
+
+1. Create a text file with one API key per line (e.g., `api_keys.txt`)
+2. Click "Load Keys" in the GUI sidebar
+3. The system will rotate through keys automatically, handling rate limits
+
 ---
 
 ## Usage
