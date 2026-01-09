@@ -45,7 +45,15 @@ async def init_gemini_client() -> bool:
                 logger.info("Gemini client initialized successfully.")
                 return True
             else:
-                error_msg = "Gemini cookies not found. Please provide cookies in config.conf or ensure browser is logged in."
+                error_msg = (
+                    "Gemini cookies not found or empty. "
+                    "To fix this:\n"
+                    "  1. Open https://gemini.google.com in your browser and log in\n"
+                    "  2. Open DevTools (F12) > Application > Cookies > gemini.google.com\n"
+                    "  3. Copy values of '__Secure-1PSID' and '__Secure-1PSIDTS'\n"
+                    "  4. Paste them in config.conf under [Cookies] section\n"
+                    "  See TROUBLESHOOTING.md for detailed instructions."
+                )
                 logger.error(error_msg)
                 _initialization_error = error_msg
                 return False

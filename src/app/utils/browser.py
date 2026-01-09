@@ -402,13 +402,23 @@ def get_cookie_from_browser(service: Literal["gemini"]) -> Optional[tuple]:
         if secure_1psid and secure_1psidts:
             # Check if values are not empty (they might be encrypted on Windows)
             if len(secure_1psid.strip()) == 0 or len(secure_1psidts.strip()) == 0:
-                logger.warning("Gemini cookies found but appear to be empty (possibly encrypted). Manual cookie extraction may be required on Windows.")
+                logger.warning(
+                    "Gemini cookies found but values are empty (decryption failed). "
+                    "This is common on Windows when the browser is running or crypto libraries are missing. "
+                    "Solutions: 1) Close all browser windows and retry, "
+                    "2) Install 'pip install pywin32 pycryptodomex', or "
+                    "3) Manually copy cookies from browser DevTools. See TROUBLESHOOTING.md"
+                )
                 return None
             
             logger.info("Both Gemini cookies found and appear valid.")
             return secure_1psid, secure_1psidts
         else:
-            logger.warning("Gemini cookies not found or incomplete.")
+            logger.warning(
+                "Gemini cookies not found or incomplete. "
+                "Please ensure you are logged in to https://gemini.google.com in your browser. "
+                "See TROUBLESHOOTING.md for manual cookie extraction."
+            )
             return None
     else:
         logger.warning(f"Unsupported service: {service}")

@@ -486,7 +486,17 @@ class GeminiChatGUI:
                         self.status_label.config(text="Server: Failed to start")
                         self._update_status_indicator(False)
                         self.start_btn.config(state=tk.NORMAL)
-                        self._append_message("System", "Failed to start server. Check if cookies are configured.", 'error')
+                        self._append_message(
+                            "System", 
+                            "Failed to start server. Gemini cookies not found or invalid.\n\n"
+                            "To fix this:\n"
+                            "1. Open https://gemini.google.com and log in\n"
+                            "2. Press F12 > Application > Cookies > gemini.google.com\n"
+                            "3. Copy '__Secure-1PSID' and '__Secure-1PSIDTS' values\n"
+                            "4. Paste them in config.conf under [Cookies]\n\n"
+                            "See TROUBLESHOOTING.md for detailed instructions.", 
+                            'error'
+                        )
                         
                 elif msg_type == 'server_stopped':
                     self.status_label.config(text="Server: Stopped")
