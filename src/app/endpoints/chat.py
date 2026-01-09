@@ -2,7 +2,7 @@
 import time
 import asyncio
 import re
-from typing import List, Tuple
+from typing import List, Tuple, Optional, TYPE_CHECKING
 from fastapi import APIRouter, HTTPException
 from app.logger import logger
 from schemas.request import (
@@ -15,6 +15,9 @@ from schemas.request import (
 )
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
 from app.services.session_manager import get_translate_session_manager
+
+if TYPE_CHECKING:
+    from models.gemini import MyGeminiClient
 
 router = APIRouter()
 
@@ -107,9 +110,9 @@ async def chat_completions(request: OpenAIChatRequest):
 def _build_translation_prompt(
     lines: List[SubtitleLine],
     target_language: str,
-    source_language: str | None,
-    system_instruction: str | None,
-    prompt_template: str | None
+    source_language: Optional[str],
+    system_instruction: Optional[str],
+    prompt_template: Optional[str]
 ) -> str:
     """Build the translation prompt for a batch of subtitle lines."""
     
@@ -182,13 +185,13 @@ def _parse_translation_response(
 
 
 async def _translate_batch(
-    gemini_client,
+    gemini_client: "MyGeminiClient",
     lines: List[SubtitleLine],
     target_language: str,
-    source_language: str | None,
+    source_language: Optional[str],
     model_value: str,
-    system_instruction: str | None,
-    prompt_template: str | None
+    system_instruction: Optional[str],
+    prompt_template: Optional[str]
 ) -> Tuple[List[TranslatedLine], List[str]]:
     """Translate a batch of subtitle lines."""
     

@@ -9,19 +9,31 @@ class SessionManager:
         self.session = None
         self.model = None
         self._lock = None  # Lazy initialization to avoid event loop issues
+        self._lock_loop = None  # Track which event loop the lock belongs to
 
     def _get_lock(self):
-        """Get or create lock for current event loop to avoid 'Event loop is closed' errors."""
+        """
+        Get or create lock for current event loop.
+        
+        This handles the case where the event loop changes (e.g., in multiprocessing
+        or when the server restarts) by creating a new lock for the new event loop.
+        This prevents 'Event loop is closed' errors.
+        """
         try:
-            loop = asyncio.get_running_loop()
-            # Check if we have a lock and if it's for the current event loop
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop - this shouldn't happen in async context
+            # but create a lock anyway for safety
             if self._lock is None:
                 self._lock = asyncio.Lock()
             return self._lock
-        except RuntimeError:
-            # No running loop, create a new lock
+        
+        # Create new lock if we don't have one or if the event loop changed
+        if self._lock is None or self._lock_loop is not current_loop:
             self._lock = asyncio.Lock()
-            return self._lock
+            self._lock_loop = current_loop
+            
+        return self._lock
 
     def reset_session(self):
         """Reset the session to force a new chat session on next request."""

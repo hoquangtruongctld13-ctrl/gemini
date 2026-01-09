@@ -1,6 +1,6 @@
 # src/schemas/request.py
 from enum import Enum
-from typing import List, Optional, Dict
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 class GeminiModels(str, Enum):
