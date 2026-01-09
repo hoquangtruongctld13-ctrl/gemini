@@ -48,13 +48,30 @@ class ServerManager:
             import uvicorn
             import signal
             
-            # Initialize the client in the main process first
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(init_gemini_client())
-            loop.close()
+            # Initialize the client in a separate thread to avoid blocking
+            # This runs the async initialization in a new event loop
+            init_result = [False]
+            init_error = [None]
             
-            if not result:
+            def init_client_sync():
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        init_result[0] = loop.run_until_complete(init_gemini_client())
+                    finally:
+                        loop.close()
+                except Exception as e:
+                    init_error[0] = str(e)
+            
+            # Run initialization in current thread (called from background thread)
+            init_client_sync()
+            
+            if init_error[0]:
+                print(f"Client initialization error: {init_error[0]}")
+                return False
+                
+            if not init_result[0]:
                 return False
             
             self._stop_event = multiprocessing.Event()
@@ -85,14 +102,36 @@ class ServerManager:
             )
             self.process.start()
             
-            # Wait for server to be ready
-            time.sleep(2)
-            self.is_running = True
-            return True
+            # Wait for server to be ready with health check
+            if self._wait_for_server():
+                self.is_running = True
+                return True
+            else:
+                # Server didn't start properly, clean up
+                self.stop()
+                return False
             
         except Exception as e:
             print(f"Failed to start server: {e}")
             return False
+    
+    def _wait_for_server(self, timeout: int = 10, check_interval: float = 0.5) -> bool:
+        """Wait for the server to be ready by polling the health endpoint."""
+        import httpx
+        
+        start_time = time.time()
+        url = f"http://{self.host}:{self.port}/docs"
+        
+        while time.time() - start_time < timeout:
+            try:
+                response = httpx.get(url, timeout=1.0)
+                if response.status_code == 200:
+                    return True
+            except (httpx.ConnectError, httpx.TimeoutException):
+                pass
+            time.sleep(check_interval)
+        
+        return False
     
     def stop(self):
         """Stop the server."""
@@ -482,8 +521,21 @@ class GeminiChatGUI:
             else:
                 return
         
-        # Close HTTP client
-        asyncio.run(self.http_client.aclose())
+        # Close HTTP client in a separate thread to avoid blocking
+        def close_client():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self.http_client.aclose())
+                finally:
+                    loop.close()
+            except Exception:
+                pass  # Ignore errors on close
+        
+        close_thread = threading.Thread(target=close_client, daemon=True)
+        close_thread.start()
+        close_thread.join(timeout=2)  # Wait up to 2 seconds for cleanup
         
         self.root.destroy()
 
