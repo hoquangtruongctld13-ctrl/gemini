@@ -406,7 +406,7 @@ def get_cookie_from_browser(service: Literal["gemini"]) -> Optional[tuple]:
                     "Gemini cookies found but values are empty (decryption failed). "
                     "This is common on Windows when the browser is running or crypto libraries are missing. "
                     "Solutions: 1) Close all browser windows and retry, "
-                    "2) Install 'pip install pywin32 pycryptodomex', or "
+                    "2) Run `pip install pywin32 pycryptodomex` to install crypto libraries, or "
                     "3) Manually copy cookies from browser DevTools. See TROUBLESHOOTING.md"
                 )
                 return None

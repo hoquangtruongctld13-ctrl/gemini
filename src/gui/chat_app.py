@@ -491,7 +491,7 @@ class GeminiChatGUI:
                             "Failed to start server. Gemini cookies not found or invalid.\n\n"
                             "To fix this:\n"
                             "1. Open https://gemini.google.com and log in\n"
-                            "2. Press F12 > Application > Cookies > gemini.google.com\n"
+                            "2. Press F12 > Application (Chrome/Edge) or Storage (Firefox) > Cookies\n"
                             "3. Copy '__Secure-1PSID' and '__Secure-1PSIDTS' values\n"
                             "4. Paste them in config.conf under [Cookies]\n\n"
                             "See TROUBLESHOOTING.md for detailed instructions.", 
