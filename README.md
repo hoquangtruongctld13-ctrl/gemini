@@ -64,6 +64,7 @@ This design provides both **speed and redundancy**, ensuring flexibility dependi
     - `/gemini`
     - `/gemini-chat`
     - `/translate`
+    - `/multi-translate` (Batch subtitle translation)
     - `/v1beta/models/{model}` (Google Generative AI v1beta API)
 
   - **gpt4free Server**:
@@ -206,6 +207,47 @@ Continues a persistent conversation with the LLM without starting a new session.
 
 Designed for quick integration with the [Translate It!](https://github.com/iSegaro/Translate-It) browser extension.
 Functionally identical to `/gemini-chat`, meaning it **maintains session context** across requests.
+
+> `POST /multi-translate`
+
+**Batch subtitle translation endpoint** with parallel processing support.
+
+Features:
+- **Batch processing**: Translate multiple subtitle lines in a single request
+- **Parallel requests**: Configurable number of concurrent API calls (default: 3)
+- **Configurable batch size**: Set lines per request (default: 10, max: 50)
+- **System instructions**: Custom instructions for the translation model
+- **Custom prompts**: Full control over translation prompts
+
+Example Request:
+```json
+{
+  "lines": [
+    {"index": 1, "content": "Hello world"},
+    {"index": 2, "content": "How are you?"}
+  ],
+  "target_language": "Vietnamese",
+  "source_language": "English",
+  "model": "gemini-2.5-flash",
+  "lines_per_request": 10,
+  "parallel_requests": 3,
+  "system_instruction": "Translate naturally for subtitles"
+}
+```
+
+Example Response:
+```json
+{
+  "translations": [
+    {"index": 1, "original": "Hello world", "translated": "Xin chào thế giới"},
+    {"index": 2, "original": "How are you?", "translated": "Bạn khỏe không?"}
+  ],
+  "total_lines": 2,
+  "successful_lines": 2,
+  "failed_lines": 0,
+  "errors": null
+}
+```
 
 > `POST /v1/chat/completions`
 

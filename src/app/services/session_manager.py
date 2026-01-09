@@ -8,10 +8,42 @@ class SessionManager:
         self.client = client
         self.session = None
         self.model = None
-        self.lock = asyncio.Lock()
+        self._lock = None  # Lazy initialization to avoid event loop issues
+        self._lock_loop = None  # Track which event loop the lock belongs to
+
+    def _get_lock(self):
+        """
+        Get or create lock for current event loop.
+        
+        This handles the case where the event loop changes (e.g., in multiprocessing
+        or when the server restarts) by creating a new lock for the new event loop.
+        This prevents 'Event loop is closed' errors.
+        """
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop - this shouldn't happen in async context
+            # but create a lock anyway for safety
+            if self._lock is None:
+                self._lock = asyncio.Lock()
+            return self._lock
+        
+        # Create new lock if we don't have one or if the event loop changed
+        if self._lock is None or self._lock_loop is not current_loop:
+            self._lock = asyncio.Lock()
+            self._lock_loop = current_loop
+            
+        return self._lock
+
+    def reset_session(self):
+        """Reset the session to force a new chat session on next request."""
+        self.session = None
+        self.model = None
+        logger.info("Session reset - will create new chat session on next request")
 
     async def get_response(self, model, message, images):
-        async with self.lock:
+        lock = self._get_lock()
+        async with lock:
             # Start a new session if none exists or the model has changed
             if self.session is None or self.model != model:
                 if self.session is not None:
@@ -23,10 +55,14 @@ class SessionManager:
                 self.model = model
 
             try:
-                # FIX: The underlying library `gemini-webapi` has changed its keyword arguments
-                # in a recent update. `message` is now `prompt` and `images` is now `files`.
-                return await self.session.send_message(prompt=message, files=images)
+                # Send message using the gemini-webapi's ChatSession
+                return await self.session.send_message(prompt=message, images=images)
             except Exception as e:
+                error_str = str(e).lower()
+                # Reset session on critical errors to allow recovery
+                if any(err in error_str for err in ['event loop', 'closed', 'connection', 'auth']):
+                    logger.warning(f"Critical error detected, resetting session: {e}")
+                    self.reset_session()
                 logger.error(f"Error in session get_response: {e}", exc_info=True)
                 raise
 
@@ -42,8 +78,34 @@ def init_session_managers():
         client = get_gemini_client()
         _translate_session_manager = SessionManager(client)
         _gemini_chat_manager = SessionManager(client)
+        logger.info("Session managers initialized successfully")
     except GeminiClientNotInitializedError:
         logger.warning("Session managers not initialized: Gemini client not available.")
+
+def reset_all_sessions():
+    """Reset all session managers to recover from errors."""
+    global _translate_session_manager, _gemini_chat_manager
+    if _translate_session_manager:
+        _translate_session_manager.reset_session()
+    if _gemini_chat_manager:
+        _gemini_chat_manager.reset_session()
+    logger.info("All sessions reset")
+
+async def reinit_session_managers():
+    """
+    Reinitialize session managers with refreshed client.
+    Use this when client has been reinitialized.
+    """
+    global _translate_session_manager, _gemini_chat_manager
+    try:
+        client = get_gemini_client()
+        _translate_session_manager = SessionManager(client)
+        _gemini_chat_manager = SessionManager(client)
+        logger.info("Session managers reinitialized successfully")
+        return True
+    except GeminiClientNotInitializedError:
+        logger.warning("Session managers not reinitialized: Gemini client not available.")
+        return False
 
 def get_translate_session_manager():
     return _translate_session_manager
