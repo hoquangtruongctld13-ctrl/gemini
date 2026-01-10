@@ -689,9 +689,9 @@ class GeminiChatGUI:
                 i += 2
                 content_lines = []
                 while i < len(lines) and lines[i].strip():
-                    content_lines.append(lines[i].strip())
+                    content_lines.append(lines[i].rstrip())
                     i += 1
-                content = " ".join(content_lines).strip()
+                content = "\n".join(content_lines).strip()
                 if content:
                     entries.append(self.SubtitleEntry(index=index, timecode=timecode, content=content))
                 continue
