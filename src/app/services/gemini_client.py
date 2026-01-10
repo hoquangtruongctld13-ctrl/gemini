@@ -57,9 +57,12 @@ async def init_gemini_client(force_reload_config: bool = False) -> bool:
                     except Exception:
                         pass  # Ignore errors when closing old client
                 
-                _gemini_client = MyGeminiClient(secure_1psid=gemini_cookie_1PSID, secure_1psidts=gemini_cookie_1PSIDTS, proxy=gemini_proxy)
+                # Get timeout from config (default 600 seconds for Pro/thinking models)
+                gemini_timeout = CONFIG.getfloat("AI", "gemini_timeout", fallback=600)
+                
+                _gemini_client = MyGeminiClient(secure_1psid=gemini_cookie_1PSID, secure_1psidts=gemini_cookie_1PSIDTS, proxy=gemini_proxy, timeout=gemini_timeout)
                 await _gemini_client.init()
-                logger.info("Gemini client initialized successfully.")
+                logger.info(f"Gemini client initialized successfully with timeout={gemini_timeout}s.")
                 return True
             else:
                 error_msg = (

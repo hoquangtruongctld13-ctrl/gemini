@@ -28,6 +28,13 @@ default_ai = gemini
 # - gemini-3.0-pro
 default_model_gemini = gemini-3.0-pro
 
+# --- Gemini Timeout Configuration ---
+# Timeout in seconds for Gemini API requests.
+# Increase this value if you're using Pro models with "thinking" mode
+# which may take longer to respond (e.g., for subtitle translation).
+# Default: 600 seconds (10 minutes)
+gemini_timeout = 600
+
 # --- Gemini Cookies ---
 # Provide your authentication cookies for Gemini here.
 # You can either paste them manually or log in via browser to generate them.
