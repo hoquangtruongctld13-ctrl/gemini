@@ -117,7 +117,10 @@ def _build_translation_prompt(
     """Build the translation prompt for a batch of subtitle lines."""
     
     # Format lines as "index: content"
-    lines_text = "\n".join([f"{line.index}: {line.content}" for line in lines])
+    # Preserve explicit line breaks with escaped markers so parsing stays reliable.
+    lines_text = "\n".join(
+        [f"{line.index}: {line.content.replace(chr(10), r'\\n')}" for line in lines]
+    )
     
     # Use custom prompt template if provided
     if prompt_template:
@@ -137,8 +140,9 @@ IMPORTANT RULES:
 2. Preserve the original line numbers/indices exactly
 3. Only translate the content, not the index numbers
 4. Keep the translation natural and fluent for subtitles
-5. Do not add any explanations or extra text
-6. Return ONLY the translated lines in the same format
+5. Preserve any "\\n" markers inside a line as line breaks
+6. Do not add any explanations or extra text
+7. Return ONLY the translated lines in the same format
 
 Input subtitles:
 {lines_text}
@@ -158,28 +162,48 @@ def _parse_translation_response(
     original_map = {line.index: line.content for line in original_lines}
     
     # Try to parse lines in format "index: content"
-    # Handle various formats the model might return
-    lines = response_text.strip().split('\n')
-    
-    for line in lines:
-        line = line.strip()
+    # Handle various formats the model might return, including wrapped lines.
+    lines = response_text.strip().splitlines()
+    current_idx = None
+    current_content = []
+
+    def flush_current():
+        if current_idx is None:
+            return
+        content = "\n".join(current_content).strip()
+        if not content:
+            return
+        content = content.replace(r"\n", "\n")
+        if current_idx in original_map:
+            translated.append(TranslatedLine(
+                index=current_idx,
+                original=original_map[current_idx],
+                translated=content
+            ))
+
+    for raw_line in lines:
+        line = raw_line.strip()
         if not line:
             continue
-            
-        # Try to match "index: content" or "index. content" or just numbered lines
-        match = re.match(r'^(\d+)[:\.\)]\s*(.+)$', line)
+        if line.startswith("```"):
+            continue
+
+        match = re.match(r'^(\d+)\s*[:\.\)\-]\s*(.+)$', line)
         if match:
+            flush_current()
             try:
-                idx = int(match.group(1))
-                content = match.group(2).strip()
-                if idx in original_map:
-                    translated.append(TranslatedLine(
-                        index=idx,
-                        original=original_map[idx],
-                        translated=content
-                    ))
+                current_idx = int(match.group(1))
             except ValueError:
+                current_idx = None
+                current_content = []
                 continue
+            current_content = [match.group(2).strip()]
+            continue
+
+        if current_idx is not None:
+            current_content.append(line)
+
+    flush_current()
     
     return translated
 
