@@ -16,6 +16,19 @@ from schemas.request import (
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
 from app.services.session_manager import get_translate_session_manager
 
+# Import exceptions for proper error handling
+try:
+    from gemini_webapi.exceptions import APIError, GeminiError
+except ImportError:
+    APIError = Exception
+    GeminiError = Exception
+
+try:
+    import httpx
+    HTTPX_NETWORK_ERRORS = (httpx.ReadError, httpx.ConnectError, httpx.TimeoutException)
+except ImportError:
+    HTTPX_NETWORK_ERRORS = ()
+
 if TYPE_CHECKING:
     from models.gemini import MyGeminiClient
 
@@ -294,6 +307,44 @@ def _parse_translation_response(
     return translated
 
 
+def _is_retryable_error(e: Exception) -> bool:
+    """Check if an exception should trigger a retry.
+    
+    Returns True for:
+    - Network errors (httpx.ReadError, httpx.ConnectError, httpx.TimeoutException)
+    - Gemini API errors (APIError, GeminiError) which can be transient
+    - Any exception with these error types in their name or message
+    """
+    error_type = type(e).__name__
+    error_msg = str(e).lower()
+    
+    # Check by exception type
+    if HTTPX_NETWORK_ERRORS and isinstance(e, HTTPX_NETWORK_ERRORS):
+        return True
+    
+    # Check for Gemini API errors (transient failures)
+    if isinstance(e, (APIError, GeminiError)):
+        return True
+    
+    # Check by type name (fallback for cases where imports fail)
+    retryable_type_names = [
+        "ReadError", "ConnectError", "TimeoutException", 
+        "APIError", "GeminiError", "NetworkError"
+    ]
+    if any(name in error_type for name in retryable_type_names):
+        return True
+    
+    # Check error message for network-related issues
+    network_keywords = [
+        "connection", "timeout", "network", "read error",
+        "invalid response", "failed to generate"
+    ]
+    if any(keyword in error_msg for keyword in network_keywords):
+        return True
+    
+    return False
+
+
 async def _translate_batch(
     gemini_client: "MyGeminiClient",
     lines: List[SubtitleLine],
@@ -323,6 +374,10 @@ async def _translate_batch(
                 files=None
             )
             
+            # Check for empty or invalid response
+            if not response or not hasattr(response, 'text') or not response.text:
+                raise APIError("Empty response received from Gemini API")
+            
             translated = _parse_translation_response(response.text, lines)
             
             # Check if we got all translations
@@ -337,24 +392,30 @@ async def _translate_batch(
         except Exception as e:
             last_exception = e
             error_type = type(e).__name__
+            error_msg_str = str(e) if str(e) else error_type
             
-            # Check if it's a network error that should be retried
-            if "ReadError" in error_type or "ConnectError" in error_type or "TimeoutException" in error_type:
+            # Check if it's a retryable error
+            if _is_retryable_error(e):
                 if attempt < max_retries - 1:
                     wait_time = (attempt + 1) * 2  # Exponential backoff: 2, 4, 6 seconds
-                    logger.warning(f"Network error on attempt {attempt + 1}, retrying in {wait_time}s: {e}")
+                    logger.warning(
+                        f"Retryable error ({error_type}) on attempt {attempt + 1}/{max_retries}, "
+                        f"retrying in {wait_time}s: {error_msg_str}"
+                    )
                     await asyncio.sleep(wait_time)
                     continue
             
             # Non-retryable error or last attempt
-            error_msg = f"Translation batch failed: {str(e)}"
+            error_msg = f"Translation batch failed ({error_type}): {error_msg_str}"
             logger.error(error_msg, exc_info=True)
             errors.append(error_msg)
             break
     else:
         # All retries exhausted
         if last_exception:
-            error_msg = f"Translation batch failed after {max_retries} retries: {str(last_exception)}"
+            error_type = type(last_exception).__name__
+            error_msg_str = str(last_exception) if str(last_exception) else error_type
+            error_msg = f"Translation batch failed after {max_retries} retries ({error_type}): {error_msg_str}"
             logger.error(error_msg, exc_info=True)
             errors.append(error_msg)
         
