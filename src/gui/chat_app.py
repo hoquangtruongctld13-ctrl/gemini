@@ -881,42 +881,61 @@ class GeminiChatGUI:
         
         entries = self._subtitle_entries
         
+        # Capture all user settings in main thread before starting background thread
+        # This is important because Tkinter variables should only be accessed from main thread
+        selected_index = self.translate_model_combo.current()
+        model = self.MODELS[selected_index][1]
+        lines_per_request = self._safe_int(self.lines_per_request_var, 10)
+        parallel_requests = self._safe_int(self.parallel_requests_var, 3)
+        target_language = self.target_language_var.get().strip() or "Vietnamese"
+        source_language = self.source_language_var.get().strip()
+        system_instruction = self.system_instruction_text.get("1.0", tk.END).strip()
+        prompt_template = self.prompt_template_text.get("1.0", tk.END).strip()
+        
+        # Build settings dict to pass to background thread
+        settings = {
+            "model": model,
+            "lines_per_request": max(1, min(lines_per_request, 50)),
+            "parallel_requests": max(1, min(parallel_requests, 10)),
+            "target_language": target_language,
+            "source_language": source_language,
+            "system_instruction": system_instruction,
+            "prompt_template": prompt_template,
+        }
+        
         # Disable translate button during processing
         self.translate_btn.config(state=tk.DISABLED)
         self.translate_status_label.config(text="Translating...")
         
         def send_thread():
-            self._send_multi_translate_sync(entries)
+            self._send_multi_translate_sync(entries, settings)
         
         thread = threading.Thread(target=send_thread, daemon=True)
         thread.start()
 
-    def _send_multi_translate_sync(self, entries: list["GeminiChatGUI.SubtitleEntry"]):
-        """Send multi-translate request using sync client."""
+    def _send_multi_translate_sync(self, entries: list["GeminiChatGUI.SubtitleEntry"], settings: dict):
+        """Send multi-translate request using sync client.
+        
+        Args:
+            entries: List of subtitle entries to translate
+            settings: Dictionary containing all translation settings captured from main thread
+        """
         try:
-            selected_index = self.translate_model_combo.current()
-            model = self.MODELS[selected_index][1]
-            
-            lines_per_request = self._safe_int(self.lines_per_request_var, 10)
-            parallel_requests = self._safe_int(self.parallel_requests_var, 3)
-            
             payload = {
                 "lines": [{"index": entry.index, "content": entry.content} for entry in entries],
-                "target_language": self.target_language_var.get().strip() or "Vietnamese",
-                "model": model,
-                "lines_per_request": max(1, min(lines_per_request, 50)),
-                "parallel_requests": max(1, min(parallel_requests, 10)),
+                "target_language": settings["target_language"],
+                "model": settings["model"],
+                "lines_per_request": settings["lines_per_request"],
+                "parallel_requests": settings["parallel_requests"],
             }
             
-            source_language = self.source_language_var.get().strip()
-            if source_language:
-                payload["source_language"] = source_language
+            if settings["source_language"]:
+                payload["source_language"] = settings["source_language"]
             
-            system_instruction = self.system_instruction_text.get("1.0", tk.END).strip()
-            if system_instruction:
-                payload["system_instruction"] = system_instruction
+            if settings["system_instruction"]:
+                payload["system_instruction"] = settings["system_instruction"]
             
-            prompt_template = self.prompt_template_text.get("1.0", tk.END).strip()
+            prompt_template = settings["prompt_template"]
             if prompt_template:
                 if "{lines}" not in prompt_template:
                     prompt_template = f"{prompt_template}\n\n{{lines}}"
