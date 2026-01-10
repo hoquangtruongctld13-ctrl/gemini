@@ -116,29 +116,36 @@ def _build_translation_prompt(
 ) -> str:
     """Build the translation prompt for a batch of subtitle lines."""
     
-    # Format lines as "index: content"
-    lines_text = "\n".join([f"{line.index}: {line.content}" for line in lines])
-    
+    # Format lines as "index: content" separated by pipes
+    lines_text = " | ".join([f"{line.index}: {line.content}" for line in lines])
+
+    format_instruction = (
+        'Return translations in the exact format: "index: translated content | index: translated content". '
+        "Preserve indices exactly and return only the translated lines."
+    )
+
     # Use custom prompt template if provided
     if prompt_template:
-        return prompt_template.replace("{lines}", lines_text)
+        prompt_body = prompt_template.replace("{lines}", lines_text)
+        if system_instruction:
+            return f"{system_instruction}\n\n{format_instruction}\n\n{prompt_body}"
+        return f"{format_instruction}\n\n{prompt_body}"
     
     # Build default prompt
     source_lang_text = f"from {source_language} " if source_language else ""
     
-    system_text = ""
-    if system_instruction:
-        system_text = f"System instruction: {system_instruction}\n\n"
-    
+    system_text = f"{system_instruction}\n\n" if system_instruction else ""
+
     prompt = f"""{system_text}You are a professional subtitle translator. Translate the following subtitle lines {source_lang_text}to {target_language}.
 
 IMPORTANT RULES:
-1. Maintain the exact same format: "index: translated content"
+1. Maintain the exact same format: "index: translated content | index: translated content"
 2. Preserve the original line numbers/indices exactly
 3. Only translate the content, not the index numbers
 4. Keep the translation natural and fluent for subtitles
 5. Do not add any explanations or extra text
 6. Return ONLY the translated lines in the same format
+7. {format_instruction}
 
 Input subtitles:
 {lines_text}
@@ -159,15 +166,15 @@ def _parse_translation_response(
     
     # Try to parse lines in format "index: content"
     # Handle various formats the model might return
-    lines = response_text.strip().split('\n')
+    cleaned_response = response_text.strip()
+    if "|" in cleaned_response:
+        segments = [segment.strip() for segment in re.split(r"\s*\|\s*", cleaned_response) if segment.strip()]
+    else:
+        segments = [line.strip() for line in cleaned_response.splitlines() if line.strip()]
     
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-            
+    for segment in segments:
         # Try to match "index: content" or "index. content" or just numbered lines
-        match = re.match(r'^(\d+)[:\.\)]\s*(.+)$', line)
+        match = re.match(r'^(\d+)[:\.\)]\s*(.+)$', segment)
         if match:
             try:
                 idx = int(match.group(1))

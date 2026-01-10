@@ -673,7 +673,13 @@ class GeminiChatGUI:
 
     def _parse_subtitle_input(self, raw_text: str) -> tuple[list["GeminiChatGUI.SubtitleEntry"], str]:
         """Parse subtitle input text into entries."""
-        lines = raw_text.splitlines()
+        lines = []
+        for raw_line in raw_text.splitlines():
+            if "|" in raw_line:
+                split_parts = [part.strip() for part in raw_line.split("|") if part.strip()]
+                lines.extend(split_parts)
+            else:
+                lines.append(raw_line)
         entries: list[GeminiChatGUI.SubtitleEntry] = []
         i = 0
         
