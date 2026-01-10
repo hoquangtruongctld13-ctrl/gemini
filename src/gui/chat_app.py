@@ -640,6 +640,8 @@ class GeminiChatGUI:
             
             prompt_template = self.prompt_template_text.get("1.0", tk.END).strip()
             if prompt_template:
+                if "{lines}" not in prompt_template:
+                    prompt_template = f"{prompt_template}\n\n{{lines}}"
                 payload["prompt_template"] = prompt_template
             
             response = self.http_client.post(
