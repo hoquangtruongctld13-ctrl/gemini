@@ -8,12 +8,13 @@ class MyGeminiClient:
     """
     Wrapper for the Gemini Web API client.
     """
-    def __init__(self, secure_1psid: str, secure_1psidts: str, proxy: str | None = None) -> None:
+    def __init__(self, secure_1psid: str, secure_1psidts: str, proxy: str | None = None, timeout: float = 600) -> None:
         self.client = WebGeminiClient(secure_1psid, secure_1psidts, proxy)
+        self.timeout = timeout
 
     async def init(self) -> None:
-        """Initialize the Gemini client."""
-        await self.client.init()
+        """Initialize the Gemini client with configurable timeout."""
+        await self.client.init(timeout=self.timeout)
     async def generate_content(self, message: str, model: str, files: Optional[List[Union[str, Path]]] = None):
         """
         Generate content using the Gemini client.
