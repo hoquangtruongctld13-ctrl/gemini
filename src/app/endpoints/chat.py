@@ -156,39 +156,58 @@ def _parse_translation_response(
     response_text: str,
     original_lines: List[SubtitleLine]
 ) -> List[TranslatedLine]:
-    """Parse the translation response and extract translated lines."""
+    """Parse the translation response and extract translated lines.
+    
+    Handles multiple formats:
+    1. One line per index: "1201: content"
+    2. Multiple per line with pipe delimiter: "1201: content | 1202: content"
+    3. Multiline content continuation
+    """
     
     translated = []
     original_map = {line.index: line.content for line in original_lines}
+    parsed_indices = set()
     
-    # Try to parse lines in format "index: content"
-    # Handle various formats the model might return, including wrapped lines.
-    lines = response_text.strip().splitlines()
+    # First, normalize the response by splitting on | delimiter
+    # This handles format like: "1201: content | 1202: content"
+    normalized_lines = []
+    for raw_line in response_text.strip().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("```"):
+            continue
+        
+        # Split by | but only if followed by a digit (to avoid splitting content with |)
+        # Pattern: " | " followed by digits
+        segments = re.split(r'\s*\|\s*(?=\d+\s*[:\.\)\-])', line)
+        for segment in segments:
+            segment = segment.strip()
+            if segment:
+                normalized_lines.append(segment)
+    
     current_idx = None
     current_content = []
 
     def flush_current():
+        nonlocal current_idx, current_content
         if current_idx is None:
             return
         content = "\n".join(current_content).strip()
         if not content:
             return
         content = content.replace(r"\n", "\n")
-        if current_idx in original_map:
+        if current_idx in original_map and current_idx not in parsed_indices:
             translated.append(TranslatedLine(
                 index=current_idx,
                 original=original_map[current_idx],
                 translated=content
             ))
+            parsed_indices.add(current_idx)
+        current_idx = None
+        current_content = []
 
-    for raw_line in lines:
-        line = raw_line.strip()
-        if not line:
-            continue
-        if line.startswith("```"):
-            continue
-
-        match = re.match(r'^(\d+)\s*[:\.\)\-]\s*(.+)$', line)
+    for line in normalized_lines:
+        # Match format: "index: content" or "index. content" or "index) content" or "index- content"
+        match = re.match(r'^(\d+)\s*[:\.\)\-]\s*(.*)$', line)
         if match:
             flush_current()
             try:
@@ -197,9 +216,11 @@ def _parse_translation_response(
                 current_idx = None
                 current_content = []
                 continue
-            current_content = [match.group(2).strip()]
+            content = match.group(2).strip()
+            current_content = [content] if content else []
             continue
 
+        # Continuation line for current index
         if current_idx is not None:
             current_content.append(line)
 
@@ -215,37 +236,62 @@ async def _translate_batch(
     source_language: Optional[str],
     model_value: str,
     system_instruction: Optional[str],
-    prompt_template: Optional[str]
+    prompt_template: Optional[str],
+    max_retries: int = 3
 ) -> Tuple[List[TranslatedLine], List[str]]:
-    """Translate a batch of subtitle lines."""
+    """Translate a batch of subtitle lines with retry logic."""
     
     errors = []
     translated = []
     
-    try:
-        prompt = _build_translation_prompt(
-            lines, target_language, source_language,
-            system_instruction, prompt_template
-        )
-        
-        response = await gemini_client.generate_content(
-            message=prompt, 
-            model=model_value, 
-            files=None
-        )
-        
-        translated = _parse_translation_response(response.text, lines)
-        
-        # Check if we got all translations
-        if len(translated) < len(lines):
-            missing = set(l.index for l in lines) - set(t.index for t in translated)
-            if missing:
-                errors.append(f"Missing translations for indices: {missing}")
-                
-    except Exception as e:
-        error_msg = f"Translation batch failed: {str(e)}"
-        logger.error(error_msg, exc_info=True)
-        errors.append(error_msg)
+    prompt = _build_translation_prompt(
+        lines, target_language, source_language,
+        system_instruction, prompt_template
+    )
+    
+    last_exception = None
+    for attempt in range(max_retries):
+        try:
+            response = await gemini_client.generate_content(
+                message=prompt, 
+                model=model_value, 
+                files=None
+            )
+            
+            translated = _parse_translation_response(response.text, lines)
+            
+            # Check if we got all translations
+            if len(translated) < len(lines):
+                missing = set(l.index for l in lines) - set(t.index for t in translated)
+                if missing:
+                    errors.append(f"Missing translations for indices: {missing}")
+            
+            # Success - break out of retry loop
+            break
+                    
+        except Exception as e:
+            last_exception = e
+            error_type = type(e).__name__
+            
+            # Check if it's a network error that should be retried
+            if "ReadError" in error_type or "ConnectError" in error_type or "TimeoutException" in error_type:
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2  # Exponential backoff: 2, 4, 6 seconds
+                    logger.warning(f"Network error on attempt {attempt + 1}, retrying in {wait_time}s: {e}")
+                    await asyncio.sleep(wait_time)
+                    continue
+            
+            # Non-retryable error or last attempt
+            error_msg = f"Translation batch failed: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            errors.append(error_msg)
+            break
+    else:
+        # All retries exhausted
+        if last_exception:
+            error_msg = f"Translation batch failed after {max_retries} retries: {str(last_exception)}"
+            logger.error(error_msg, exc_info=True)
+            errors.append(error_msg)
         
     return translated, errors
 
