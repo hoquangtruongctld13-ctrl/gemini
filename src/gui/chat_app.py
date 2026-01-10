@@ -392,7 +392,8 @@ class GeminiChatGUI:
         content: str
 
     def _build_translate_tab(self, parent):
-        """Build subtitle translate tab UI."""
+        """Build subtitle translate tab UI with table view."""
+        # Settings frame
         settings_frame = ttk.Frame(parent)
         settings_frame.pack(fill=tk.X, pady=(0, 10))
         
@@ -427,25 +428,26 @@ class GeminiChatGUI:
         lines_label = ttk.Label(settings_frame, text="Lines/request:")
         lines_label.grid(row=1, column=0, padx=(0, 8), pady=4, sticky=tk.W)
         
-        self.lines_per_request_var = tk.IntVar(value=10)
+        self.lines_per_request_var = tk.StringVar(value="10")
         lines_entry = ttk.Entry(settings_frame, textvariable=self.lines_per_request_var, width=10)
         lines_entry.grid(row=1, column=1, padx=(0, 16), pady=4, sticky=tk.W)
         
         parallel_label = ttk.Label(settings_frame, text="Parallel requests:")
         parallel_label.grid(row=1, column=2, padx=(0, 8), pady=4, sticky=tk.W)
         
-        self.parallel_requests_var = tk.IntVar(value=3)
+        self.parallel_requests_var = tk.StringVar(value="3")
         parallel_entry = ttk.Entry(settings_frame, textvariable=self.parallel_requests_var, width=10)
         parallel_entry.grid(row=1, column=3, padx=(0, 16), pady=4, sticky=tk.W)
         
+        # Instruction frame
         instruction_frame = ttk.Frame(parent)
-        instruction_frame.pack(fill=tk.BOTH, pady=(0, 10))
+        instruction_frame.pack(fill=tk.X, pady=(0, 10))
         
         system_label = ttk.Label(instruction_frame, text="System instruction:")
         system_label.pack(anchor=tk.W)
         self.system_instruction_text = scrolledtext.ScrolledText(
             instruction_frame,
-            height=4,
+            height=3,
             font=('Consolas', 10),
             bg='#1e1e1e',
             fg='#d4d4d4',
@@ -459,7 +461,7 @@ class GeminiChatGUI:
         prompt_label.pack(anchor=tk.W)
         self.prompt_template_text = scrolledtext.ScrolledText(
             instruction_frame,
-            height=5,
+            height=3,
             font=('Consolas', 10),
             bg='#1e1e1e',
             fg='#d4d4d4',
@@ -469,46 +471,321 @@ class GeminiChatGUI:
         )
         self.prompt_template_text.pack(fill=tk.X, expand=False)
         
-        io_frame = ttk.Frame(parent)
-        io_frame.pack(fill=tk.BOTH, expand=True)
+        # File load and buttons frame
+        btn_frame = ttk.Frame(parent)
+        btn_frame.pack(fill=tk.X, pady=(0, 10))
         
-        input_label = ttk.Label(io_frame, text="Subtitle input (SRT or index: content):")
-        input_label.pack(anchor=tk.W)
-        self.subtitle_input = scrolledtext.ScrolledText(
-            io_frame,
-            wrap=tk.WORD,
-            font=('Consolas', 10),
-            bg='#1e1e1e',
-            fg='#d4d4d4',
-            insertbackground='#ffffff',
-            padx=8,
-            pady=6,
-            height=8
+        load_btn = ttk.Button(
+            btn_frame,
+            text="📂 Load SRT File",
+            command=self._load_srt_file
         )
-        self.subtitle_input.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+        load_btn.pack(side=tk.LEFT, padx=(0, 10))
         
-        translate_btn = ttk.Button(
-            io_frame,
-            text="Translate Subtitles",
+        paste_btn = ttk.Button(
+            btn_frame,
+            text="📋 Paste Text",
+            command=self._paste_subtitle_text
+        )
+        paste_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        clear_btn = ttk.Button(
+            btn_frame,
+            text="🗑️ Clear",
+            command=self._clear_subtitle_table
+        )
+        clear_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.translate_btn = ttk.Button(
+            btn_frame,
+            text="🔄 Translate Subtitles",
             command=self._send_multi_translate
         )
-        translate_btn.pack(anchor=tk.E, pady=(0, 8))
+        self.translate_btn.pack(side=tk.LEFT, padx=(0, 10))
         
-        output_label = ttk.Label(io_frame, text="Translated output:")
-        output_label.pack(anchor=tk.W)
-        self.subtitle_output = scrolledtext.ScrolledText(
-            io_frame,
+        export_btn = ttk.Button(
+            btn_frame,
+            text="💾 Export SRT",
+            command=self._export_translated_srt
+        )
+        export_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Status label
+        self.translate_status_label = ttk.Label(btn_frame, text="", style='Status.TLabel')
+        self.translate_status_label.pack(side=tk.RIGHT)
+        
+        # Table frame with Treeview
+        table_frame = ttk.Frame(parent)
+        table_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Create Treeview with columns
+        columns = ("index", "timecode", "original", "translated")
+        self.subtitle_tree = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+            selectmode="extended"
+        )
+        
+        # Define column headings
+        self.subtitle_tree.heading("index", text="#")
+        self.subtitle_tree.heading("timecode", text="Timecode")
+        self.subtitle_tree.heading("original", text="Original")
+        self.subtitle_tree.heading("translated", text="Translated")
+        
+        # Define column widths
+        self.subtitle_tree.column("index", width=50, minwidth=40, stretch=False)
+        self.subtitle_tree.column("timecode", width=180, minwidth=150, stretch=False)
+        self.subtitle_tree.column("original", width=300, minwidth=200)
+        self.subtitle_tree.column("translated", width=300, minwidth=200)
+        
+        # Add scrollbars
+        tree_scroll_y = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.subtitle_tree.yview)
+        tree_scroll_x = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL, command=self.subtitle_tree.xview)
+        self.subtitle_tree.configure(yscrollcommand=tree_scroll_y.set, xscrollcommand=tree_scroll_x.set)
+        
+        # Pack the tree and scrollbars
+        self.subtitle_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tree_scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
+        tree_scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        # Configure tree tags for styling
+        self.subtitle_tree.tag_configure('missing', foreground='#f14c4c')
+        self.subtitle_tree.tag_configure('translated', foreground='#4ec9b0')
+        
+        # Store subtitle entries for later use
+        self._subtitle_entries: list["GeminiChatGUI.SubtitleEntry"] = []
+        
+        # Legacy text widgets for backward compatibility (hidden)
+        self.subtitle_input = None
+        self.subtitle_output = None
+        
+    def _load_srt_file(self):
+        """Load an SRT file and populate the table."""
+        from tkinter import filedialog
+        
+        filepath = filedialog.askopenfilename(
+            title="Select SRT File",
+            filetypes=[("SRT files", "*.srt"), ("All files", "*.*")]
+        )
+        
+        if not filepath:
+            return
+        
+        try:
+            # Try different encodings
+            content = None
+            for encoding in ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252']:
+                try:
+                    with open(filepath, 'r', encoding=encoding) as f:
+                        content = f.read()
+                    break
+                except UnicodeDecodeError:
+                    continue
+            
+            if content is None:
+                messagebox.showerror("Error", "Could not read file with supported encodings.")
+                return
+            
+            entries, output_format = self._parse_subtitle_input(content)
+            if not entries:
+                messagebox.showwarning("No Subtitles", "No subtitle lines could be parsed from the file.")
+                return
+            
+            self._populate_subtitle_table(entries)
+            self.translate_status_label.config(text=f"Loaded {len(entries)} lines from {os.path.basename(filepath)}")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load file: {str(e)}")
+    
+    def _clear_subtitle_table(self):
+        """Clear the subtitle table."""
+        for item in self.subtitle_tree.get_children():
+            self.subtitle_tree.delete(item)
+        self._subtitle_entries = []
+        self.translate_status_label.config(text="Cleared")
+    
+    def _paste_subtitle_text(self):
+        """Open a dialog to paste subtitle text."""
+        paste_window = tk.Toplevel(self.root)
+        paste_window.title("Paste Subtitle Text")
+        paste_window.geometry("600x400")
+        paste_window.transient(self.root)
+        paste_window.grab_set()
+        
+        label = ttk.Label(paste_window, text="Paste subtitle text (SRT format or index: content):")
+        label.pack(anchor=tk.W, padx=10, pady=(10, 5))
+        
+        text_area = scrolledtext.ScrolledText(
+            paste_window,
             wrap=tk.WORD,
             font=('Consolas', 10),
             bg='#1e1e1e',
             fg='#d4d4d4',
             insertbackground='#ffffff',
             padx=8,
-            pady=6,
-            height=8,
-            state=tk.DISABLED
+            pady=6
         )
-        self.subtitle_output.pack(fill=tk.BOTH, expand=True)
+        text_area.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        
+        def on_ok():
+            content = text_area.get("1.0", tk.END).strip()
+            if not content:
+                messagebox.showwarning("No Input", "Please paste subtitle text.", parent=paste_window)
+                return
+            
+            entries, output_format = self._parse_subtitle_input(content)
+            if not entries:
+                messagebox.showwarning("Invalid Input", "No subtitle lines could be parsed.", parent=paste_window)
+                return
+            
+            self._populate_subtitle_table(entries)
+            self.translate_status_label.config(text=f"Loaded {len(entries)} lines from pasted text")
+            paste_window.destroy()
+        
+        def on_cancel():
+            paste_window.destroy()
+        
+        btn_frame = ttk.Frame(paste_window)
+        btn_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        
+        ok_btn = ttk.Button(btn_frame, text="OK", command=on_ok)
+        ok_btn.pack(side=tk.RIGHT, padx=(5, 0))
+        
+        cancel_btn = ttk.Button(btn_frame, text="Cancel", command=on_cancel)
+        cancel_btn.pack(side=tk.RIGHT)
+    
+    def _populate_subtitle_table(self, entries: list["GeminiChatGUI.SubtitleEntry"]):
+        """Populate the table with subtitle entries."""
+        # Clear existing items
+        for item in self.subtitle_tree.get_children():
+            self.subtitle_tree.delete(item)
+        
+        self._subtitle_entries = entries
+        
+        for entry in entries:
+            # Replace newlines in content with visible marker for display
+            display_original = entry.content.replace('\n', ' ↵ ')
+            timecode = entry.timecode if entry.timecode else ""
+            
+            self.subtitle_tree.insert(
+                "",
+                tk.END,
+                values=(entry.index, timecode, display_original, "")
+            )
+    
+    def _update_table_translation(self, index: int, translated: str, is_missing: bool = False):
+        """Update a single row's translation in the table."""
+        for item in self.subtitle_tree.get_children():
+            values = self.subtitle_tree.item(item, 'values')
+            if values and int(values[0]) == index:
+                display_translated = translated.replace('\n', ' ↵ ')
+                tag = 'missing' if is_missing else 'translated'
+                self.subtitle_tree.item(item, values=(values[0], values[1], values[2], display_translated), tags=(tag,))
+                break
+    
+    def _export_translated_srt(self):
+        """Export translated subtitles to an SRT file."""
+        from tkinter import filedialog
+        
+        if not self._subtitle_entries:
+            messagebox.showwarning("No Data", "No subtitles to export.")
+            return
+        
+        filepath = filedialog.asksaveasfilename(
+            title="Save Translated SRT",
+            defaultextension=".srt",
+            filetypes=[("SRT files", "*.srt"), ("All files", "*.*")]
+        )
+        
+        if not filepath:
+            return
+        
+        try:
+            # Collect translations from the table
+            translation_map = {}
+            for item in self.subtitle_tree.get_children():
+                values = self.subtitle_tree.item(item, 'values')
+                if values and len(values) >= 4:
+                    idx = int(values[0])
+                    translated = values[3].replace(' ↵ ', '\n') if values[3] else ""
+                    translation_map[idx] = translated
+            
+            # Build SRT content
+            blocks = []
+            for entry in self._subtitle_entries:
+                translated = translation_map.get(entry.index, entry.content)
+                # If no translation, use original
+                if not translated or translated == "[API không trả về dòng này]":
+                    translated = entry.content
+                
+                block_lines = [str(entry.index)]
+                if entry.timecode:
+                    block_lines.append(entry.timecode)
+                block_lines.append(translated)
+                blocks.append("\n".join(block_lines))
+            
+            content = "\n\n".join(blocks)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            self.translate_status_label.config(text=f"Exported to {os.path.basename(filepath)}")
+            messagebox.showinfo("Success", f"Exported {len(self._subtitle_entries)} lines to {filepath}")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to export: {str(e)}")
+    
+    def _handle_translate_table_update(self, data: dict):
+        """Handle translation results and update the table."""
+        entries = data.get("entries", [])
+        translations = data.get("translations", [])
+        total_lines = data.get("total_lines", 0)
+        successful_lines = data.get("successful_lines", 0)
+        failed_lines = data.get("failed_lines", 0)
+        errors = data.get("errors", [])
+        
+        # Build translation map
+        translation_map = {item.get("index"): item.get("translated") for item in translations}
+        
+        # Update each row in the table
+        translated_indices = set()
+        for item in self.subtitle_tree.get_children():
+            values = self.subtitle_tree.item(item, 'values')
+            if values and len(values) >= 4:
+                idx = int(values[0])
+                
+                if idx in translation_map and translation_map[idx]:
+                    translated_text = translation_map[idx].replace('\n', ' ↵ ')
+                    self.subtitle_tree.item(
+                        item, 
+                        values=(values[0], values[1], values[2], translated_text),
+                        tags=('translated',)
+                    )
+                    translated_indices.add(idx)
+                else:
+                    # Mark as missing translation
+                    self.subtitle_tree.item(
+                        item, 
+                        values=(values[0], values[1], values[2], "[API không trả về dòng này]"),
+                        tags=('missing',)
+                    )
+        
+        # Re-enable translate button
+        self.translate_btn.config(state=tk.NORMAL)
+        
+        # Update status
+        status_text = f"Done: {successful_lines}/{total_lines} lines translated"
+        if failed_lines > 0:
+            status_text += f", {failed_lines} failed"
+        self.translate_status_label.config(text=status_text)
+        
+        # Show errors in chat if any
+        if errors:
+            error_text = f"Translation completed with {len(errors)} error(s):\n" + "\n".join(errors[:5])
+            if len(errors) > 5:
+                error_text += f"\n... and {len(errors) - 5} more errors"
+            self._append_message("System", error_text, 'system')
         
     def _update_status_indicator(self, is_running: bool):
         """Update the status indicator color."""
@@ -597,23 +874,24 @@ class GeminiChatGUI:
             messagebox.showwarning("Server Not Running", "Please start the server first.")
             return
         
-        raw_text = self.subtitle_input.get("1.0", tk.END).strip()
-        if not raw_text:
-            messagebox.showwarning("No Input", "Please paste subtitle text to translate.")
+        # Check if we have entries in the table
+        if not self._subtitle_entries:
+            messagebox.showwarning("No Input", "Please load an SRT file or paste subtitle text first.")
             return
         
-        entries, output_format = self._parse_subtitle_input(raw_text)
-        if not entries:
-            messagebox.showwarning("Invalid Input", "No subtitle lines could be parsed.")
-            return
+        entries = self._subtitle_entries
+        
+        # Disable translate button during processing
+        self.translate_btn.config(state=tk.DISABLED)
+        self.translate_status_label.config(text="Translating...")
         
         def send_thread():
-            self._send_multi_translate_sync(entries, output_format)
+            self._send_multi_translate_sync(entries)
         
         thread = threading.Thread(target=send_thread, daemon=True)
         thread.start()
 
-    def _send_multi_translate_sync(self, entries: list["GeminiChatGUI.SubtitleEntry"], output_format: str):
+    def _send_multi_translate_sync(self, entries: list["GeminiChatGUI.SubtitleEntry"]):
         """Send multi-translate request using sync client."""
         try:
             selected_index = self.translate_model_combo.current()
@@ -646,23 +924,31 @@ class GeminiChatGUI:
             
             response = self.http_client.post(
                 f"{self.server_manager.get_base_url()}/multi-translate",
-                json=payload
+                json=payload,
+                timeout=300.0  # 5 minute timeout for large batches
             )
             
             if response.status_code == 200:
                 data = response.json()
                 translations = data.get("translations", [])
-                output_text = self._format_translations(entries, translations, output_format)
                 errors = data.get("errors") or []
-                if errors:
-                    output_text += "\n\nErrors:\n" + "\n".join(errors)
-                self.message_queue.put(('translate_response', output_text))
+                
+                # Build response data for the queue
+                result = {
+                    "entries": entries,
+                    "translations": translations,
+                    "total_lines": data.get("total_lines", len(entries)),
+                    "successful_lines": data.get("successful_lines", 0),
+                    "failed_lines": data.get("failed_lines", 0),
+                    "errors": errors
+                }
+                self.message_queue.put(('translate_table_update', result))
             else:
                 error_detail = response.json().get('detail', response.text)
-                self.message_queue.put(('error', f"Translate error {response.status_code}: {error_detail}"))
+                self.message_queue.put(('translate_error', f"Translate error {response.status_code}: {error_detail}"))
                 
         except Exception as e:
-            self.message_queue.put(('error', f"Translate connection error: {str(e)}"))
+            self.message_queue.put(('translate_error', f"Translate connection error: {str(e)}"))
 
     def _safe_int(self, variable: tk.Variable, default: int) -> int:
         """Safely parse int from Tk variable."""
@@ -816,11 +1102,22 @@ class GeminiChatGUI:
                     self.message_input.config(state=tk.NORMAL)
                     self.message_input.focus()
                     
+                elif msg_type == 'translate_table_update':
+                    # Update the table with translation results
+                    self._handle_translate_table_update(data)
+                    
+                elif msg_type == 'translate_error':
+                    self.translate_btn.config(state=tk.NORMAL)
+                    self.translate_status_label.config(text="Translation failed")
+                    self._append_message("Error", data, 'error')
+                    
                 elif msg_type == 'translate_response':
-                    self.subtitle_output.config(state=tk.NORMAL)
-                    self.subtitle_output.delete("1.0", tk.END)
-                    self.subtitle_output.insert(tk.END, data)
-                    self.subtitle_output.config(state=tk.DISABLED)
+                    # Legacy support (not used with new table UI)
+                    if self.subtitle_output:
+                        self.subtitle_output.config(state=tk.NORMAL)
+                        self.subtitle_output.delete("1.0", tk.END)
+                        self.subtitle_output.insert(tk.END, data)
+                        self.subtitle_output.config(state=tk.DISABLED)
                     
                 elif msg_type == 'error':
                     self._append_message("Error", data, 'error')
