@@ -107,6 +107,60 @@ async def chat_completions(request: OpenAIChatRequest):
         raise HTTPException(status_code=400, detail="Model not specified in the request.")
 
 
+def _split_on_index_patterns(text: str, expected_indices: set) -> List[str]:
+    """Split text that contains multiple 'index: content' patterns without delimiters.
+    
+    Handles formats like: "199: content 200: content 201: content"
+    Only splits at known expected indices to avoid false positives.
+    
+    Args:
+        text: The text to split
+        expected_indices: Set of expected index numbers to look for
+        
+    Returns:
+        List of separated segments
+    """
+    if not text.strip():
+        return []
+    
+    # Pattern to find potential index markers: number followed by : . ) or -
+    # We'll look for these in the middle of the text (not at the start)
+    segments = []
+    
+    # Check if text starts with an index pattern
+    start_match = re.match(r'^(\d+)\s*[:\.\)\-]', text)
+    if not start_match:
+        # No index at start, return as is
+        return [text.strip()]
+    
+    # Find all positions where an expected index appears
+    # Pattern: space(s) + number + delimiter (: . ) -)
+    split_positions = [0]  # Always start from beginning
+    
+    for match in re.finditer(r'\s+(\d+)\s*[:\.\)\-]', text):
+        try:
+            idx = int(match.group(1))
+            if idx in expected_indices:
+                # Found an expected index, mark position for split
+                split_positions.append(match.start())
+        except ValueError:
+            continue
+    
+    # If no splits found (beyond the start), return the whole text
+    if len(split_positions) <= 1:
+        return [text.strip()]
+    
+    # Split the text at identified positions
+    for i in range(len(split_positions)):
+        start = split_positions[i]
+        end = split_positions[i + 1] if i + 1 < len(split_positions) else len(text)
+        segment = text[start:end].strip()
+        if segment:
+            segments.append(segment)
+    
+    return segments if segments else [text.strip()]
+
+
 def _build_translation_prompt(
     lines: List[SubtitleLine],
     target_language: str,
@@ -161,15 +215,18 @@ def _parse_translation_response(
     Handles multiple formats:
     1. One line per index: "1201: content"
     2. Multiple per line with pipe delimiter: "1201: content | 1202: content"
-    3. Multiline content continuation
+    3. Multiple per line without delimiter: "199: content 200: content"
+    4. Multiline content continuation
     """
     
     translated = []
     original_map = {line.index: line.content for line in original_lines}
     parsed_indices = set()
     
-    # First, normalize the response by splitting on | delimiter
-    # This handles format like: "1201: content | 1202: content"
+    # Build a set of expected indices for smarter splitting
+    expected_indices = set(original_map.keys())
+    
+    # First, normalize the response by splitting on various delimiters
     normalized_lines = []
     for raw_line in response_text.strip().splitlines():
         line = raw_line.strip()
@@ -179,10 +236,18 @@ def _parse_translation_response(
         # Split by | but only if followed by a digit (to avoid splitting content with |)
         # Pattern: " | " followed by digits
         segments = re.split(r'\s*\|\s*(?=\d+\s*[:\.\)\-])', line)
+        
         for segment in segments:
             segment = segment.strip()
-            if segment:
-                normalized_lines.append(segment)
+            if not segment:
+                continue
+            
+            # Also split segments that have multiple "index: content" patterns without |
+            # Pattern: split before a number followed by delimiter (: . ) -) when there's content before it
+            # This handles: "199: content 200: content" -> ["199: content", "200: content"]
+            # Only split when the number is a known expected index to avoid false positives
+            sub_segments = _split_on_index_patterns(segment, expected_indices)
+            normalized_lines.extend(sub_segments)
     
     current_idx = None
     current_content = []
