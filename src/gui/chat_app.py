@@ -19,6 +19,8 @@ import os
 import time
 import queue
 import signal
+from dataclasses import dataclass
+import re
 from typing import Optional, TYPE_CHECKING
 import httpx
 import uvicorn
@@ -188,7 +190,7 @@ class GeminiChatGUI:
         self.message_queue = queue.Queue()
         
         # HTTP client
-        self.http_client = httpx.AsyncClient(timeout=120.0)
+        self.http_client = httpx.Client(timeout=120.0)
         
         # Build UI
         self._setup_styles()
@@ -227,15 +229,22 @@ class GeminiChatGUI:
         # Server control
         self._build_server_control(main_frame)
         
-        # Model selection
-        self._build_model_selection(main_frame)
+        # Tabs
+        tabs = ttk.Notebook(main_frame)
+        tabs.pack(fill=tk.BOTH, expand=True)
         
-        # Chat area
-        self._build_chat_area(main_frame)
+        chat_tab = ttk.Frame(tabs)
+        translate_tab = ttk.Frame(tabs)
         
-        # Input area
-        self._build_input_area(main_frame)
+        tabs.add(chat_tab, text="Chat")
+        tabs.add(translate_tab, text="Subtitle Translate")
         
+        # Chat tab
+        self._build_chat_tab(chat_tab)
+        
+        # Translate tab
+        self._build_translate_tab(translate_tab)
+
     def _build_header(self, parent):
         """Build header section."""
         header_frame = ttk.Frame(parent)
@@ -310,6 +319,12 @@ class GeminiChatGUI:
         self.model_combo.current(0)
         self.model_combo.pack(side=tk.LEFT)
         self.model_combo.bind("<<ComboboxSelected>>", self._on_model_change)
+
+    def _build_chat_tab(self, parent):
+        """Build chat tab UI."""
+        self._build_model_selection(parent)
+        self._build_chat_area(parent)
+        self._build_input_area(parent)
         
     def _build_chat_area(self, parent):
         """Build chat display area."""
@@ -369,6 +384,131 @@ class GeminiChatGUI:
             state=tk.DISABLED
         )
         self.send_btn.pack(side=tk.RIGHT, fill=tk.Y)
+
+    @dataclass
+    class SubtitleEntry:
+        index: int
+        timecode: Optional[str]
+        content: str
+
+    def _build_translate_tab(self, parent):
+        """Build subtitle translate tab UI."""
+        settings_frame = ttk.Frame(parent)
+        settings_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        model_label = ttk.Label(settings_frame, text="Model:")
+        model_label.grid(row=0, column=0, padx=(0, 8), pady=4, sticky=tk.W)
+        
+        self.translate_model_var = tk.StringVar(value=self.MODELS[0][1])
+        self.translate_model_combo = ttk.Combobox(
+            settings_frame,
+            textvariable=self.translate_model_var,
+            values=[m[0] for m in self.MODELS],
+            state="readonly",
+            width=20
+        )
+        self.translate_model_combo.current(0)
+        self.translate_model_combo.grid(row=0, column=1, padx=(0, 16), pady=4, sticky=tk.W)
+        
+        target_label = ttk.Label(settings_frame, text="Target language:")
+        target_label.grid(row=0, column=2, padx=(0, 8), pady=4, sticky=tk.W)
+        
+        self.target_language_var = tk.StringVar(value="Vietnamese")
+        target_entry = ttk.Entry(settings_frame, textvariable=self.target_language_var, width=18)
+        target_entry.grid(row=0, column=3, padx=(0, 16), pady=4, sticky=tk.W)
+        
+        source_label = ttk.Label(settings_frame, text="Source language:")
+        source_label.grid(row=0, column=4, padx=(0, 8), pady=4, sticky=tk.W)
+        
+        self.source_language_var = tk.StringVar(value="")
+        source_entry = ttk.Entry(settings_frame, textvariable=self.source_language_var, width=18)
+        source_entry.grid(row=0, column=5, padx=(0, 16), pady=4, sticky=tk.W)
+        
+        lines_label = ttk.Label(settings_frame, text="Lines/request:")
+        lines_label.grid(row=1, column=0, padx=(0, 8), pady=4, sticky=tk.W)
+        
+        self.lines_per_request_var = tk.IntVar(value=10)
+        lines_entry = ttk.Entry(settings_frame, textvariable=self.lines_per_request_var, width=10)
+        lines_entry.grid(row=1, column=1, padx=(0, 16), pady=4, sticky=tk.W)
+        
+        parallel_label = ttk.Label(settings_frame, text="Parallel requests:")
+        parallel_label.grid(row=1, column=2, padx=(0, 8), pady=4, sticky=tk.W)
+        
+        self.parallel_requests_var = tk.IntVar(value=3)
+        parallel_entry = ttk.Entry(settings_frame, textvariable=self.parallel_requests_var, width=10)
+        parallel_entry.grid(row=1, column=3, padx=(0, 16), pady=4, sticky=tk.W)
+        
+        instruction_frame = ttk.Frame(parent)
+        instruction_frame.pack(fill=tk.BOTH, pady=(0, 10))
+        
+        system_label = ttk.Label(instruction_frame, text="System instruction:")
+        system_label.pack(anchor=tk.W)
+        self.system_instruction_text = scrolledtext.ScrolledText(
+            instruction_frame,
+            height=4,
+            font=('Consolas', 10),
+            bg='#1e1e1e',
+            fg='#d4d4d4',
+            insertbackground='#ffffff',
+            padx=8,
+            pady=6
+        )
+        self.system_instruction_text.pack(fill=tk.X, expand=False, pady=(0, 8))
+        
+        prompt_label = ttk.Label(instruction_frame, text="Prompt template (use {lines}):")
+        prompt_label.pack(anchor=tk.W)
+        self.prompt_template_text = scrolledtext.ScrolledText(
+            instruction_frame,
+            height=5,
+            font=('Consolas', 10),
+            bg='#1e1e1e',
+            fg='#d4d4d4',
+            insertbackground='#ffffff',
+            padx=8,
+            pady=6
+        )
+        self.prompt_template_text.pack(fill=tk.X, expand=False)
+        
+        io_frame = ttk.Frame(parent)
+        io_frame.pack(fill=tk.BOTH, expand=True)
+        
+        input_label = ttk.Label(io_frame, text="Subtitle input (SRT or index: content):")
+        input_label.pack(anchor=tk.W)
+        self.subtitle_input = scrolledtext.ScrolledText(
+            io_frame,
+            wrap=tk.WORD,
+            font=('Consolas', 10),
+            bg='#1e1e1e',
+            fg='#d4d4d4',
+            insertbackground='#ffffff',
+            padx=8,
+            pady=6,
+            height=8
+        )
+        self.subtitle_input.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+        
+        translate_btn = ttk.Button(
+            io_frame,
+            text="Translate Subtitles",
+            command=self._send_multi_translate
+        )
+        translate_btn.pack(anchor=tk.E, pady=(0, 8))
+        
+        output_label = ttk.Label(io_frame, text="Translated output:")
+        output_label.pack(anchor=tk.W)
+        self.subtitle_output = scrolledtext.ScrolledText(
+            io_frame,
+            wrap=tk.WORD,
+            font=('Consolas', 10),
+            bg='#1e1e1e',
+            fg='#d4d4d4',
+            insertbackground='#ffffff',
+            padx=8,
+            pady=6,
+            height=8,
+            state=tk.DISABLED
+        )
+        self.subtitle_output.pack(fill=tk.BOTH, expand=True)
         
     def _update_status_indicator(self, is_running: bool):
         """Update the status indicator color."""
@@ -423,20 +563,20 @@ class GeminiChatGUI:
         
         # Send request in background
         def send_thread():
-            asyncio.run(self._async_send_message(message))
+            self._send_message_sync(message)
         
         thread = threading.Thread(target=send_thread, daemon=True)
         thread.start()
         
-    async def _async_send_message(self, message: str):
-        """Async method to send message to API."""
+    def _send_message_sync(self, message: str):
+        """Send message to API using sync client."""
         try:
             # Get selected model
             selected_index = self.model_combo.current()
             model = self.MODELS[selected_index][1]
             
             # Send request
-            response = await self.http_client.post(
+            response = self.http_client.post(
                 f"{self.server_manager.get_base_url()}/gemini",
                 json={"message": message, "model": model}
             )
@@ -450,6 +590,155 @@ class GeminiChatGUI:
                 
         except Exception as e:
             self.message_queue.put(('error', f"Connection error: {str(e)}"))
+
+    def _send_multi_translate(self):
+        """Send multi-translate request."""
+        if not self.server_manager.is_running:
+            messagebox.showwarning("Server Not Running", "Please start the server first.")
+            return
+        
+        raw_text = self.subtitle_input.get("1.0", tk.END).strip()
+        if not raw_text:
+            messagebox.showwarning("No Input", "Please paste subtitle text to translate.")
+            return
+        
+        entries, output_format = self._parse_subtitle_input(raw_text)
+        if not entries:
+            messagebox.showwarning("Invalid Input", "No subtitle lines could be parsed.")
+            return
+        
+        def send_thread():
+            self._send_multi_translate_sync(entries, output_format)
+        
+        thread = threading.Thread(target=send_thread, daemon=True)
+        thread.start()
+
+    def _send_multi_translate_sync(self, entries: list["GeminiChatGUI.SubtitleEntry"], output_format: str):
+        """Send multi-translate request using sync client."""
+        try:
+            selected_index = self.translate_model_combo.current()
+            model = self.MODELS[selected_index][1]
+            
+            lines_per_request = self._safe_int(self.lines_per_request_var, 10)
+            parallel_requests = self._safe_int(self.parallel_requests_var, 3)
+            
+            payload = {
+                "lines": [{"index": entry.index, "content": entry.content} for entry in entries],
+                "target_language": self.target_language_var.get().strip() or "Vietnamese",
+                "model": model,
+                "lines_per_request": max(1, min(lines_per_request, 50)),
+                "parallel_requests": max(1, min(parallel_requests, 10)),
+            }
+            
+            source_language = self.source_language_var.get().strip()
+            if source_language:
+                payload["source_language"] = source_language
+            
+            system_instruction = self.system_instruction_text.get("1.0", tk.END).strip()
+            if system_instruction:
+                payload["system_instruction"] = system_instruction
+            
+            prompt_template = self.prompt_template_text.get("1.0", tk.END).strip()
+            if prompt_template:
+                payload["prompt_template"] = prompt_template
+            
+            response = self.http_client.post(
+                f"{self.server_manager.get_base_url()}/multi-translate",
+                json=payload
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                translations = data.get("translations", [])
+                output_text = self._format_translations(entries, translations, output_format)
+                errors = data.get("errors") or []
+                if errors:
+                    output_text += "\n\nErrors:\n" + "\n".join(errors)
+                self.message_queue.put(('translate_response', output_text))
+            else:
+                error_detail = response.json().get('detail', response.text)
+                self.message_queue.put(('error', f"Translate error {response.status_code}: {error_detail}"))
+                
+        except Exception as e:
+            self.message_queue.put(('error', f"Translate connection error: {str(e)}"))
+
+    def _safe_int(self, variable: tk.Variable, default: int) -> int:
+        """Safely parse int from Tk variable."""
+        try:
+            return int(variable.get())
+        except (tk.TclError, ValueError):
+            return default
+
+    def _parse_subtitle_input(self, raw_text: str) -> tuple[list["GeminiChatGUI.SubtitleEntry"], str]:
+        """Parse subtitle input text into entries."""
+        lines = raw_text.splitlines()
+        entries: list[GeminiChatGUI.SubtitleEntry] = []
+        i = 0
+        
+        while i < len(lines):
+            line = lines[i].strip()
+            if not line:
+                i += 1
+                continue
+            
+            if line.isdigit() and i + 1 < len(lines) and "-->" in lines[i + 1]:
+                index = int(line)
+                timecode = lines[i + 1].strip()
+                i += 2
+                content_lines = []
+                while i < len(lines) and lines[i].strip():
+                    content_lines.append(lines[i].strip())
+                    i += 1
+                content = " ".join(content_lines).strip()
+                if content:
+                    entries.append(self.SubtitleEntry(index=index, timecode=timecode, content=content))
+                continue
+            
+            match = re.match(r"^(\d+)[:\.\)]\s*(.+)$", line)
+            if match:
+                entries.append(self.SubtitleEntry(
+                    index=int(match.group(1)),
+                    timecode=None,
+                    content=match.group(2).strip()
+                ))
+                i += 1
+                continue
+            
+            entries.append(self.SubtitleEntry(
+                index=len(entries) + 1,
+                timecode=None,
+                content=line
+            ))
+            i += 1
+        
+        output_format = "srt" if any(entry.timecode for entry in entries) else "simple"
+        return entries, output_format
+
+    def _format_translations(
+        self,
+        entries: list["GeminiChatGUI.SubtitleEntry"],
+        translations: list[dict],
+        output_format: str
+    ) -> str:
+        """Format translations for output."""
+        translation_map = {item.get("index"): item.get("translated") for item in translations}
+        
+        if output_format == "srt":
+            blocks = []
+            for entry in entries:
+                translated = translation_map.get(entry.index, entry.content)
+                block_lines = [str(entry.index)]
+                if entry.timecode:
+                    block_lines.append(entry.timecode)
+                block_lines.append(translated)
+                blocks.append("\n".join(block_lines))
+            return "\n\n".join(blocks)
+        
+        lines = []
+        for entry in entries:
+            translated = translation_map.get(entry.index, entry.content)
+            lines.append(f"{entry.index}: {translated}")
+        return "\n".join(lines)
             
     def _on_enter_key(self, event):
         """Handle Enter key press."""
@@ -525,6 +814,12 @@ class GeminiChatGUI:
                     self.message_input.config(state=tk.NORMAL)
                     self.message_input.focus()
                     
+                elif msg_type == 'translate_response':
+                    self.subtitle_output.config(state=tk.NORMAL)
+                    self.subtitle_output.delete("1.0", tk.END)
+                    self.subtitle_output.insert(tk.END, data)
+                    self.subtitle_output.config(state=tk.DISABLED)
+                    
                 elif msg_type == 'error':
                     self._append_message("Error", data, 'error')
                     self.send_btn.config(state=tk.NORMAL)
@@ -544,21 +839,10 @@ class GeminiChatGUI:
             else:
                 return
         
-        # Close HTTP client in a separate thread to avoid blocking
-        def close_client():
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(self.http_client.aclose())
-                finally:
-                    loop.close()
-            except Exception:
-                pass  # Ignore errors on close
-        
-        close_thread = threading.Thread(target=close_client, daemon=True)
-        close_thread.start()
-        close_thread.join(timeout=2)  # Wait up to 2 seconds for cleanup
+        try:
+            self.http_client.close()
+        except Exception:
+            pass
         
         self.root.destroy()
 
